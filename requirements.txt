@@ -1,0 +1,6 @@
+blinker==1.4
+dnspython3==1.12.0
+IPy==0.83
+rblwatch==0.2.3
+ruamel.yaml==0.11.10
+ts3==1.0.0
