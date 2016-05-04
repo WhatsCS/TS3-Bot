@@ -216,12 +216,15 @@ def connectionhandler(config):
             ts3conn.send_keepalive()
             try:
                 event = ts3conn.wait_for_event(timeout=540)
-                joinshandler(ts3conn, event)
             except KeyboardInterrupt:
                 ts3conn.stop_recv()
                 ts3conn.close()
                 sys.exit()
-
+            except ts3.query.TS3TimeoutError:
+                config.logger.warn("Timeout error, passing.")
+                pass
+            else:
+                joinshandler(ts3conn, event)
 
 if __name__ == '__main__':
     # Get config set up
