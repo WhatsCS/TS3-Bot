@@ -160,10 +160,10 @@ def joinshandler(ts3conn, event):
         clientid = event.parsed[0]['clid']
         clinfo = clienthandler(ts3conn, clientid)
         clientip = clinfo[0]['connection_client_ip']
-        rbl(clientip, clientid, ts3conn)
-        config.logger.info("Client {} connected from {}".format(
-                clinfo['client_nickname'], clinfo['connection_client_ip']
+        config.logger.info("Client {} with id {} connected from {}".format(
+                clinfo[0]['client_nickname'], clientid, clinfo[0]['connection_client_ip']
         ))
+        rbl(clientip, clientid, ts3conn)
 
 
 def checkall(ts3conn):
@@ -176,7 +176,7 @@ def checkall(ts3conn):
     #print(resp.parsed)
     for key, value in enumerate(r['clid'] for r in resp.parsed):
             clienthandler(ts3conn, value)
-            config.logger.info("found client: {}".format(value))
+            config.logger.info("found client of ID {}".format(value))
 
 
 # TODO: Fix this function so that it returns ts3conn for use with commands also make it a class
@@ -198,8 +198,10 @@ def connectionhandler(config):
         except ts3.query.TS3QueryError as e:
             config.logger.error(e)
 
+        # Check if we are connected to Teamspeak, if we are move channels and log info.
         if ts3conn.is_connected():
             name = ts3conn.whoami()
+            ts3conn.clientmove(clid=name[0]['client_id'], cid=config.ts3server['defaultChannel'])
             config.logger.info("Connected to {} as {}".format(config.ts3server['serverIP'], name[0]['client_nickname']))
         else:
             config.logger.info("Not connected to server, see error for more details.")
@@ -209,19 +211,17 @@ def connectionhandler(config):
         # run a check of all currently connected clients
         checkall(ts3conn)
 
-        # TODO: Join default channel
         ts3conn.servernotifyregister(event="server")
 
         while True:
-            ts3conn.send_keepalive()
             try:
-                event = ts3conn.wait_for_event(timeout=540)
+                event = ts3conn.wait_for_event()
             except KeyboardInterrupt:
-                ts3conn.stop_recv()
+                config.logger.info("Shutting down.")
                 ts3conn.close()
                 sys.exit()
             except ts3.query.TS3TimeoutError:
-                config.logger.warn("Timeout error, passing.")
+                config.logger.info("no events received, passing.")
                 pass
             else:
                 joinshandler(ts3conn, event)
