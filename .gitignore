@@ -93,14 +93,14 @@ coverage.xml
  
 # Django stuff:
 *.log.*
- 
+*.yaml
+*.yml
+
 # Sphinx documentation
 docs/_build/
  
 # PyBuilder
 target/
-
-SquadXML/settings_*
 
 # Ignore sqlite
 *.sqlite
