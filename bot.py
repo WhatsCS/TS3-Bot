@@ -215,13 +215,14 @@ def connectionhandler(config):
 
         while True:
             try:
-                event = ts3conn.wait_for_event()
+                event = ts3conn.wait_for_event(timeout=60)
             except KeyboardInterrupt:
                 config.logger.info("Shutting down.")
                 ts3conn.close()
                 sys.exit()
             except ts3.query.TS3TimeoutError:
                 config.logger.info("no events received, passing.")
+                ts3conn.send_keepalive()
                 pass
             else:
                 joinshandler(ts3conn, event)
