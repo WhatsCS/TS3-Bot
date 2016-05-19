@@ -68,7 +68,7 @@ class Config(object):
         fname = self.logsection.get("logFile", __name__)
 
         # Set log name to what ever the bot name is
-        self.logger = logging.getLogger(config.ts3server['botNick'])
+        self.logger = logging.getLogger(self.ts3server['botNick'])
 
         # Set log level to which ever is in the config
         try:
