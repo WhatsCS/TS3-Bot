@@ -24,9 +24,9 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import sys
 import logging
 import ruamel.yaml
-import ts3
+import lib.ts3
 from logging.handlers import TimedRotatingFileHandler
-from rblwatch import RBLSearch
+from lib.rblwatch import RBLSearch
 
 
 # Set up config
@@ -68,7 +68,7 @@ class Config(object):
         fname = self.logsection.get("logFile", __name__)
 
         # Set log name to what ever the bot name is
-        self.logger = logging.getLogger("ts3-dnsbl")
+        self.logger = logging.getLogger(config.ts3server['botNick'])
 
         # Set log level to which ever is in the config
         try:
@@ -89,6 +89,12 @@ class Config(object):
         handler.setFormatter(formatter)
         # Add the handler to the logger
         self.logger.addHandler(handler)
+
+        # repeat but for console logging
+        chandler = logging.StreamHandler()
+        chandler.setLevel(self.logsection['logLevel'].upper())
+        chandler.setFormatter(formatter)
+        self.logger.addHandler(chandler)
 
         # Let everyone know that shit is working now.
         self.logger.debug("Logging Initialized")
@@ -173,7 +179,6 @@ def checkall(ts3conn):
     :return:
     """
     resp = ts3conn.clientlist()
-    #print(resp.parsed)
     for key, value in enumerate(r['clid'] for r in resp.parsed):
             clienthandler(ts3conn, value)
             config.logger.info("found client of ID {}".format(value))
@@ -186,7 +191,7 @@ def connectionhandler(config):
     Will handle connecting, monitoring, sending information out and reconnecting
     :return:
     """
-    with ts3.query.TS3Connection(config.ts3server['serverIP'], config.ts3server['serverPort']) as ts3conn:
+    with lib.ts3.query.TS3Connection(config.ts3server['serverIP'], config.ts3server['serverPort']) as ts3conn:
         try:
             ts3conn.login(client_login_name=config.ts3server['serverUsername'],
                           client_login_password=config.ts3server['serverPassword'])
@@ -195,7 +200,7 @@ def connectionhandler(config):
             config.logger.debug("sent ts3conn use command")
             ts3conn.clientupdate(client_nickname=config.ts3server['botNick'])
             config.logger.debug("sent ts3conn client update command, nick name changed to {}".format(config.ts3server['botNick']))
-        except ts3.query.TS3QueryError as e:
+        except lib.ts3.query.TS3QueryError as e:
             config.logger.error(e)
 
         # Check if we are connected to Teamspeak, if we are move channels and log info.
@@ -214,15 +219,15 @@ def connectionhandler(config):
         ts3conn.servernotifyregister(event="server")
 
         while True:
+            ts3conn.send_keepalive()
             try:
-                event = ts3conn.wait_for_event(timeout=60)
+                event = ts3conn.wait_for_event(timeout=540)
             except KeyboardInterrupt:
                 config.logger.info("Shutting down.")
                 ts3conn.close()
                 sys.exit()
-            except ts3.query.TS3TimeoutError:
+            except lib.ts3.query.TS3TimeoutError:
                 config.logger.info("no events received, passing.")
-                ts3conn.send_keepalive()
                 pass
             else:
                 joinshandler(ts3conn, event)
