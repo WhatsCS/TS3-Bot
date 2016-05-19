@@ -234,5 +234,5 @@ def connectionhandler(config):
 
 if __name__ == '__main__':
     # Get config set up
-    config = Config("config.yaml")
+    config = Config("config.yml")
     connectionhandler(config)
