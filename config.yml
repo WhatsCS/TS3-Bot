@@ -1,0 +1,21 @@
+TS3Server:
+  serverIP:
+  serverPort: 10011
+  serverID: 1
+  serverUsername:
+  serverPassword:
+  serverGuestID: 8
+  botNick:
+  defaultChannel:  #Default Channel ID
+  ## below will be added eventually ##
+  enableFlootLimit: True #true|false
+
+Logging:
+  logFile: ts-dnsbl.log
+  logLevel: DEBUG #(debug|info|warn|error|critical)
+
+Actions:
+  rblListedNumber: 1 #How many times should they pop true until but kicks/bans default: 1
+  onMatch: kick #(kick|ban)
+  banTime: 3600 #(in seconds)
+  reason: 'Your IP is listed on a dnsbl, please connect without a proxy.' #Limit is 40 char
