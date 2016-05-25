@@ -27,6 +27,7 @@ import ruamel.yaml
 import lib.ts3
 from logging.handlers import TimedRotatingFileHandler
 from lib.rblwatch import RBLSearch
+from time import sleep
 
 
 # Set up config
@@ -136,6 +137,7 @@ def rbl(ip, clid, ts3conn):
 
     # fix for kicking and shit
     if numHits >= config.actions['rblListedNumber']:
+        sleep(10)
         if config.actions['onMatch'] == 'kick':
             kickban(kick=True, ban=False, clid=clid, ts3conn=ts3conn)
         if config.actions['onMatch'] == 'ban':
