@@ -21,13 +21,32 @@ STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
+import os
 import sys
 import logging
 import ruamel.yaml
 import lib.ts3
 from logging.handlers import TimedRotatingFileHandler
 from lib.rblwatch import RBLSearch
-from time import sleep
+from time import sleep, ctime
+from watchdog.observers import Observer
+from watchdog.events import PatternMatchingEventHandler
+
+IPLIST = []
+
+
+class ModifiedHandler(PatternMatchingEventHandler):
+    patterns = ["*.txt"]
+    relpath = os.path.join(os.path.dirname(__file__), 'whitelist.txt')
+
+    def process(self, event):
+        global IPLIST
+        if event.src_path == self.relpath:
+            IPLIST = [line.rstrip('\n') for line in open(event.src_path)]
+            config.logger.info("Whitelist change detected, reloading list.")
+
+    def on_modified(self, event):
+        self.process(event)
 
 
 # Set up config
@@ -107,26 +126,34 @@ def kickban(ban, kick, clid, ts3conn):
     Send in which you want and the function will do the rest
     :return:
     """
-    if ban:
-        ts3conn.banclient(clid=clid, time=config.actions['banTime'], banreason=config.actions['reason'])
-        config.logger.info("Banning {} for {} seconds with reason: {}".format(
-            clid, config.actions['banTime'], config.actions['reason']
-        ))
+    try:
+        if ban:
+            ts3conn.banclient(clid=clid, time=config.actions['banTime'], banreason=config.actions['reason'])
+            config.logger.info("Banning {} for {} seconds with reason: {}".format(
+                    clid, config.actions['banTime'], config.actions['reason']
+            ))
 
-    if kick:
-        ts3conn.clientkick(clid=clid, reasonid=5, reasonmsg=config.actions['reason'])
-        config.logger.info("Kicking {} from server with reason: {}".format(
-            clid, config.actions['reason']
-        ))
+        if kick:
+            ts3conn.clientkick(clid=clid, reasonid=5, reasonmsg=config.actions['reason'])
+            config.logger.info("Kicking {} from server with reason: {}".format(
+                    clid, config.actions['reason']
+            ))
+    except lib.ts3.query.TS3QueryError:
+        config.logger.warn("User with ID:{} possibly disconnected before kick/ban".format(clid))
 
 
 def rbl(ip, clid, ts3conn):
     """
     Takes ip and checks it against a list of rbl's. Will parse the responses and determine if
-    the ip address should be marked as spam. It will then ban/kick
+    the ip address should be marked as spam. It will then ban/kick. Also checks whitelist.
     :param ip:
     :return true or false:
     """
+    for wip in IPLIST:
+        if ip == wip:
+            config.logger.info("IP in whitelist.txt, ignoring user")
+            return
+
     searcher = RBLSearch(ip)
     results = searcher.listed
     # delete search_host because fuck it
@@ -137,7 +164,7 @@ def rbl(ip, clid, ts3conn):
 
     # fix for kicking and shit
     if numHits >= config.actions['rblListedNumber']:
-        sleep(10)
+        sleep(5)
         if config.actions['onMatch'] == 'kick':
             kickban(kick=True, ban=False, clid=clid, ts3conn=ts3conn)
         if config.actions['onMatch'] == 'ban':
@@ -150,8 +177,11 @@ def clienthandler(ts3conn, clid):
     Main purpose is to remove the functions from the join handler since it shouldn't do what it does at this time.
     :return list of dict:
     """
-    info = ts3conn.clientinfo(clid=clid)
-    return info.parsed
+    try:
+        info = ts3conn.clientinfo(clid=clid)
+        return info.parsed
+    except lib.ts3.query.TS3QueryError as err:
+        config.logger.error(err)
 
 
 # TODO: Move to commands.py (Subject to change) along with anything else that should be in a class?
@@ -163,13 +193,12 @@ def joinshandler(ts3conn, event):
     :param event:
     :return:
     """
-
-    if event.parsed[0].get('client_servergroups') == '8':
+    if event.parsed[0].get('client_servergroups') == str(config.ts3server.get('serverGuestID')):
         clientid = event.parsed[0]['clid']
         clinfo = clienthandler(ts3conn, clientid)
         clientip = clinfo[0]['connection_client_ip']
-        config.logger.info("Client {} with id {} connected from {}".format(
-                clinfo[0]['client_nickname'], clientid, clinfo[0]['connection_client_ip']
+        config.logger.info("Client \"{}\" with id {} connected from {}".format(
+                clinfo[0]['client_nickname'], clientid, clientip
         ))
         rbl(clientip, clientid, ts3conn)
 
@@ -182,8 +211,20 @@ def checkall(ts3conn):
     """
     resp = ts3conn.clientlist()
     for key, value in enumerate(r['clid'] for r in resp.parsed):
-            clienthandler(ts3conn, value)
-            config.logger.info("found client of ID {}".format(value))
+            clinfo = clienthandler(ts3conn, value)
+            clientip = clinfo[0]['connection_client_ip']
+
+            if not clientip:
+                clientip = "\"No IP found\""
+                config.logger.info("Client \"{}\" with id {} connected from {}".format(
+                        clinfo[0]['client_nickname'], value, clientip
+                ))
+            else:
+                config.logger.info("Client \"{}\" with id {} connected from {}".format(
+                        clinfo[0]['client_nickname'], value, clientip
+                ))
+                if clinfo[0].get('client_servergroups') == str(config.ts3server.get('serverGuestID')):
+                    rbl(clientip, value, ts3conn)
 
 
 # TODO: Fix this function so that it returns ts3conn for use with commands also make it a class
@@ -215,11 +256,18 @@ def connectionhandler(config):
             ts3conn.close()
             sys.exit()
 
+        # get path and fill in the IPLIST of all whitelisted IPs
+        rpath = os.path.dirname(__file__)
+        global IPLIST
+        IPLIST = [line.rstrip('\n') for line in open(os.path.join(rpath, 'whitelist.txt'))]
+
         # run a check of all currently connected clients
         checkall(ts3conn)
-
         ts3conn.servernotifyregister(event="server")
 
+        observer = Observer()
+        observer.schedule(ModifiedHandler(), rpath)
+        observer.start()
         while True:
             ts3conn.send_keepalive()
             try:
@@ -227,6 +275,7 @@ def connectionhandler(config):
             except KeyboardInterrupt:
                 config.logger.info("Shutting down.")
                 ts3conn.close()
+                observer.stop()
                 sys.exit()
             except lib.ts3.query.TS3TimeoutError:
                 config.logger.info("no events received, passing.")
